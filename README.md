@@ -44,11 +44,112 @@ let config = Configuration(writeKey: "YOUR_SOURCE_ID", apiKey: "YOUR_API_KEY")
 config.apiHost = "your-api-host"
 let binoban = Binoban.create(configuration: config)
 
-binoban.track(name: "Order Completed", properties: ["total": 42.0])
+binoban.track(name: "order_completed", properties: ["total": 42.0])
 ```
 
 `apiHost` is required. Without it the SDK initializes disabled and reports the
 reason to `Configuration.errorHandler` rather than sending events anywhere.
+
+## Push notifications
+
+The SDK never registers its own `UNUserNotificationCenterDelegate` and never
+touches Firebase/APNs setup — that stays your app's responsibility. Once your own
+delegates are in place, forward the relevant callbacks to the SDK's top-level
+functions.
+
+**Configure once at launch** with an iOS notification configuration — this is
+required for the SDK to present pushes and (optionally) request permission on start:
+
+```swift
+initializeNotifications(configuration: NotificationPlatformConfiguration.Ios(
+    askNotificationPermissionOnStart: true,
+    notificationSoundName: nil
+))
+```
+
+**1. Incoming data pushes** — from
+`application(_:didReceiveRemoteNotification:fetchCompletionHandler:)`. This is what
+**presents** a Binoban data push (and reports `delivered`); it ignores non-Binoban
+payloads:
+
+```swift
+func application(_ application: UIApplication,
+                 didReceiveRemoteNotification userInfo: [AnyHashable : Any],
+                 fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void) {
+    onApplicationDidReceiveRemoteNotification(userInfo: userInfo)
+    completionHandler(.newData)
+}
+```
+
+**2. Foreground delivery** — from your `UNUserNotificationCenterDelegate`'s
+`willPresent`, reports the `delivered` event:
+
+```swift
+func userNotificationCenter(_ center: UNUserNotificationCenter,
+                             willPresent notification: UNNotification,
+                             withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
+    onWillPresentForwarded(userInfo: notification.request.content.userInfo)
+    completionHandler([.banner, .sound])
+}
+```
+
+**3. User interaction** — from `didReceive response`, reports `clicked` or
+`closed`:
+
+```swift
+func userNotificationCenter(_ center: UNUserNotificationCenter,
+                             didReceive response: UNNotificationResponse,
+                             withCompletionHandler completionHandler: @escaping () -> Void) {
+    let actionId = response.actionIdentifier == UNNotificationDefaultActionIdentifier
+        ? nil : response.actionIdentifier
+    let dismissed = response.actionIdentifier == UNNotificationDismissActionIdentifier
+    onDidReceiveForwarded(
+        userInfo: response.notification.request.content.userInfo,
+        actionId: actionId,
+        dismissed: dismissed
+    )
+    completionHandler()
+}
+```
+
+`actionId` is `nil` for a plain body tap (the default action) or the tapped action
+button's identifier otherwise; `dismissed` is `true` only when the user swiped the
+notification away.
+
+**Opening a deep link / reading custom data.** The SDK reports the tap but does **not**
+open the deep link on iOS — iOS already hands the tap to your app, and routing belongs
+to your navigation. Register a handler (subclass `DefaultNotificationInteractionHandler`
+and call `super` so the SDK's delivered/click/close tracking still fires), then read
+`interaction.uri` and `interaction.customData` and route them yourself:
+
+```swift
+class MyNotificationHandler: DefaultNotificationInteractionHandler {
+    override func onNotificationInteraction(interaction: NotificationInteraction) {
+        super.onNotificationInteraction(interaction: interaction) // keep SDK analytics
+        if let uri = interaction.uri, let url = URL(string: uri) {
+            // route in-app, or hand to the system:
+            UIApplication.shared.open(url)
+        }
+        let data = interaction.customData // your push customData, or nil
+        _ = data
+    }
+}
+
+// once, at startup:
+NotificationInteractionManager.shared.setHandler(handler: MyNotificationHandler())
+```
+
+`interaction.uri` resolves to the tapped action button's target when a button was
+pressed, or the main notification target for a body tap.
+
+**4. Token registration** — from Firebase's `MessagingDelegate`:
+
+```swift
+func messaging(_ messaging: Messaging, didReceiveRegistrationToken fcmToken: String?) {
+    guard let token = fcmToken else { return }
+    onNewToken(token: token)
+}
+```
 
 ## Advertising identifier (ATT)
 
