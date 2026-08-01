@@ -40,9 +40,12 @@ pod 'binoban', '~> 1.0'
 ```swift
 import binoban
 
-let config = Configuration(writeKey: "YOUR_SOURCE_ID", apiKey: "YOUR_API_KEY")
-config.apiHost = "your-api-host"
-let binoban = Binoban.create(configuration: config)
+let binoban = BinobanFactory.shared.create(
+    apiKey: "YOUR_API_KEY",
+    sourceIdentifier: "YOUR_SOURCE_IDENTIFIER"
+) { config in
+    config.apiHost = "your-api-host"
+}
 
 binoban.track(name: "order_completed", properties: ["total": 42.0])
 ```
@@ -55,16 +58,19 @@ reason to `Configuration.errorHandler` rather than sending events anywhere.
 The SDK never registers its own `UNUserNotificationCenterDelegate` and never
 touches Firebase/APNs setup — that stays your app's responsibility. Once your own
 delegates are in place, forward the relevant callbacks to the SDK's top-level
-functions.
+functions. Kotlin top-level functions are exported to Swift as static members of
+`NotificationForwarding_iosKt`, so every call below is qualified with it.
 
 **Configure once at launch** with an iOS notification configuration — this is
 required for the SDK to present pushes and (optionally) request permission on start:
 
 ```swift
-initializeNotifications(configuration: NotificationPlatformConfiguration.Ios(
-    askNotificationPermissionOnStart: true,
-    notificationSoundName: nil
-))
+NotificationForwarding_iosKt.initializeNotifications(
+    configuration: NotificationPlatformConfigurationIos(
+        askNotificationPermissionOnStart: true,
+        notificationSoundName: nil
+    )
+)
 ```
 
 **1. Incoming data pushes** — from
@@ -76,7 +82,7 @@ payloads:
 func application(_ application: UIApplication,
                  didReceiveRemoteNotification userInfo: [AnyHashable : Any],
                  fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void) {
-    onApplicationDidReceiveRemoteNotification(userInfo: userInfo)
+    NotificationForwarding_iosKt.onApplicationDidReceiveRemoteNotification(userInfo: userInfo)
     completionHandler(.newData)
 }
 ```
@@ -88,7 +94,7 @@ func application(_ application: UIApplication,
 func userNotificationCenter(_ center: UNUserNotificationCenter,
                              willPresent notification: UNNotification,
                              withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
-    onWillPresentForwarded(userInfo: notification.request.content.userInfo)
+    NotificationForwarding_iosKt.onWillPresentForwarded(userInfo: notification.request.content.userInfo)
     completionHandler([.banner, .sound])
 }
 ```
@@ -103,7 +109,7 @@ func userNotificationCenter(_ center: UNUserNotificationCenter,
     let actionId = response.actionIdentifier == UNNotificationDefaultActionIdentifier
         ? nil : response.actionIdentifier
     let dismissed = response.actionIdentifier == UNNotificationDismissActionIdentifier
-    onDidReceiveForwarded(
+    NotificationForwarding_iosKt.onDidReceiveForwarded(
         userInfo: response.notification.request.content.userInfo,
         actionId: actionId,
         dismissed: dismissed
@@ -147,7 +153,7 @@ pressed, or the main notification target for a body tap.
 ```swift
 func messaging(_ messaging: Messaging, didReceiveRegistrationToken fcmToken: String?) {
     guard let token = fcmToken else { return }
-    onNewToken(token: token)
+    NotificationForwarding_iosKt.onNewToken(token: token)
 }
 ```
 
