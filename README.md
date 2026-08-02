@@ -58,14 +58,13 @@ reason to `Configuration.errorHandler` rather than sending events anywhere.
 The SDK never registers its own `UNUserNotificationCenterDelegate` and never
 touches Firebase/APNs setup — that stays your app's responsibility. Once your own
 delegates are in place, forward the relevant callbacks to the SDK's top-level
-functions. Kotlin top-level functions are exported to Swift as static members of
-`NotificationForwarding_iosKt`, so every call below is qualified with it.
+functions, exposed to Swift on `BinobanNotifications.shared`.
 
 **Configure once at launch** with an iOS notification configuration — this is
 required for the SDK to present pushes and (optionally) request permission on start:
 
 ```swift
-NotificationForwarding_iosKt.initializeNotifications(
+BinobanNotifications.shared.initializeNotifications(
     configuration: NotificationPlatformConfigurationIos(
         askNotificationPermissionOnStart: true,
         notificationSoundName: nil
@@ -82,7 +81,7 @@ payloads:
 func application(_ application: UIApplication,
                  didReceiveRemoteNotification userInfo: [AnyHashable : Any],
                  fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void) {
-    NotificationForwarding_iosKt.onApplicationDidReceiveRemoteNotification(userInfo: userInfo)
+    BinobanNotifications.shared.onApplicationDidReceiveRemoteNotification(userInfo: userInfo)
     completionHandler(.newData)
 }
 ```
@@ -94,7 +93,7 @@ func application(_ application: UIApplication,
 func userNotificationCenter(_ center: UNUserNotificationCenter,
                              willPresent notification: UNNotification,
                              withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
-    NotificationForwarding_iosKt.onWillPresentForwarded(userInfo: notification.request.content.userInfo)
+    BinobanNotifications.shared.onWillPresentForwarded(userInfo: notification.request.content.userInfo)
     completionHandler([.banner, .sound])
 }
 ```
@@ -109,7 +108,7 @@ func userNotificationCenter(_ center: UNUserNotificationCenter,
     let actionId = response.actionIdentifier == UNNotificationDefaultActionIdentifier
         ? nil : response.actionIdentifier
     let dismissed = response.actionIdentifier == UNNotificationDismissActionIdentifier
-    NotificationForwarding_iosKt.onDidReceiveForwarded(
+    BinobanNotifications.shared.onDidReceiveForwarded(
         userInfo: response.notification.request.content.userInfo,
         actionId: actionId,
         dismissed: dismissed
@@ -153,7 +152,7 @@ pressed, or the main notification target for a body tap.
 ```swift
 func messaging(_ messaging: Messaging, didReceiveRegistrationToken fcmToken: String?) {
     guard let token = fcmToken else { return }
-    NotificationForwarding_iosKt.onNewToken(token: token)
+    BinobanNotifications.shared.onNewToken(token: token)
 }
 ```
 

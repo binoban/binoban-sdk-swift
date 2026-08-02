@@ -15,8 +15,8 @@
 
 import PackageDescription
 
-let version = "1.0.0"
-let checksum = "9014d81fc13564084186a5c05adeeb90db6907d66fe8a5d28cb07623f16bc504"
+let version = "1.1.0"
+let checksum = "0876a9da339e166bc2e68741519bb94832d759aa7ea828125b7d8dc02dd1be6b"
 
 let package = Package(
     name: "binoban",

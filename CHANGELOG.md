@@ -4,7 +4,67 @@ All notable changes to the Binoban Kotlin Multiplatform SDK are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 the project aims for **source compatibility** — see *Migration notes*.
 
-## [Unreleased]
+## [1.1.0]
+
+### Added
+
+- **`BinobanNotifications` — a Swift-facing facade for the notification-forwarding
+  functions.** The forwarding entry points are Kotlin top-level functions, which
+  Kotlin/Native exports as static members of a synthetic class named after their file:
+  `NotificationForwarding_iosKt`. That generated name was reaching Swift call sites as
+  if it were public API. Swift callers can now use
+  `BinobanNotifications.shared.onNewToken(token:)` and friends instead.
+
+  **Purely additive.** `NotificationForwarding_iosKt` still exports and still works, so
+  no existing iOS integration breaks. Kotlin Multiplatform callers should keep calling
+  the top-level functions unqualified — that spelling is idiomatic in Kotlin and is
+  unchanged. Every facade member delegates with no added behavior.
+
+- **Android deep-link tracking is now documented.** `AndroidDeepLinkPlugin` has shipped as
+  public API since before 1.0.0 but was never registered by `Binoban.build()` and never
+  mentioned in the docs, so there was no way to discover it. `dist/kotlin/README.md` now
+  has a *Deep-link tracking (Android)* section. It stays opt-in — `binoban.add(...)` — and
+  is the only part of the SDK that reads `Configuration.application`.
+
+### Changed
+
+- **`AndroidDeeplinkPlugin` renamed to `AndroidDeepLinkPlugin`** and reduced to what it
+  actually does. The old name remains as a deprecated `typealias`, so existing source keeps
+  compiling. Removed from the class: an unused `packageInfo` field whose only reader had
+  been commented out — populating it called `getPackageInfo` and could throw an
+  `AssertionError` on a value nobody read; unused `storage` and
+  `shouldTrackApplicationLifecycleEvents` fields; a dead `runOnAnalyticsThread` helper; and
+  a `DefaultLifecycleObserver` registration that overrode no callbacks. Deep-link tracking
+  behavior is unchanged.
+
+### Fixed
+
+- **A deep link can no longer spoof its own attribution.** `deep_link_opened` wrote the
+  Android-reported `referrer` before the link's query parameters, so a link ending in
+  `?referrer=…` overwrote the referrer the OS actually reported — letting the link forge
+  the attribution data it was itself being attributed by. Query parameters are now written
+  first and the OS-reported `referrer`/`url` last, so real values win. **This changes
+  emitted payloads** for links carrying a `referrer` parameter. When Android reports no
+  referrer, a `referrer` parameter is still used, which is the normal campaign-tagging case.
+
+- **iOS KDoc Swift examples corrected.** The `NotificationForwarding.ios.kt` samples
+  showed unqualified calls and `NotificationPlatformConfiguration.Ios`, neither of which
+  resolves in Swift (the type is exported flat, as `NotificationPlatformConfigurationIos`).
+
+## [1.0.1] — 2026-07-25
+
+### Added
+
+- **`NotificationInteractionManager.drainPendingInteractions()` + an internal replay
+  buffer.** The manager now records recent interactions in a small bounded, lock-free
+  buffer and forwards them through a single `dispatch()` entry point. A consumer that
+  installs its handler *after* an interaction already fired can recover it via
+  `drainPendingInteractions()` (consumed once, delivery-only — tracking already happened).
+  Fixes an **Android cold-start gap**: a tap that launches the app from a killed state is
+  delivered by the notification trampoline during process startup, before a late-attaching
+  UI/JS layer (e.g. the React Native bridge) has called `setHandler`, so it previously
+  never reached that layer. Tracking was always unaffected; this only restores the
+  app-facing delivery of the launching tap. No behavior change for existing consumers.
 
 ### Fixed
 
