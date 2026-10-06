@@ -183,6 +183,52 @@ Two things stay **your** responsibility, because the SDK cannot know them:
   phone, …) is declared by **you**: add the matching `NSPrivacyCollectedDataType`
   entries to your app's manifest for whatever traits you send.
 
+## Trace sessions
+
+A trace session is a short-lived, opt-in window during which every event the SDK sends
+carries a `traceSessionId`, so Binoban support can follow one device through the pipeline.
+The Binoban panel issues the session and shows both a short code and a QR.
+
+**By code — works in every app, no configuration:**
+
+```swift
+BinobanTrace.shared.join(traceSessionId: codeFromThePanel)
+BinobanTrace.shared.activeSessionId()   // nil when no session is active
+BinobanTrace.shared.leave()
+```
+
+**By QR.** iOS has no deep-link hook the SDK can install, so forward the URL yourself —
+the same shape as the notification callbacks above:
+
+```swift
+func application(_ app: UIApplication, open url: URL,
+                 options: [UIApplication.OpenURLOptionsKey: Any] = [:]) -> Bool {
+    BinobanTrace.shared.handleUrl(url: url)
+    return true
+}
+```
+
+Add the same call to your `SceneDelegate` (`scene(_:openURLContexts:)`) and, if you use
+Universal Links, to `application(_:continue:restorationHandler:)`. **Omitting this is
+silent** — the trace simply never starts. Universal Links must already be configured in your
+app for a scan to open it at all; when they are not, the scan opens a browser. The code
+beside the QR always works.
+
+The session survives process death, so a scan that launches your app from cold has its id on
+the very first event. It ends when you call `leave()`, after 12 hours, or after 250 events —
+whichever comes first, all enforced by the SDK.
+
+**Delivery outcomes for a support bundle.** While a session is active the SDK records the
+outcome of each upload, including rejections the server does not store anywhere:
+
+```swift
+for record in BinobanTrace.shared.deliveryLog() {
+    print("\(record.eventNames) -> HTTP \(record.httpStatus) \(record.reason ?? "")")
+}
+```
+
+Error metadata only — event payloads are never recorded.
+
 ## Links
 
 - Documentation — https://docs.binoban.io

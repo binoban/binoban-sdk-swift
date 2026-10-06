@@ -4,6 +4,172 @@ All notable changes to the Binoban Kotlin Multiplatform SDK are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 the project aims for **source compatibility** — see *Migration notes*.
 
+## [1.3.0] — 2026-10-06
+
+### Added
+
+- **`screen()` is public, and screen views reach Binoban.** A screen view is delivered as a
+  track event named `screen`, the same shape the Web SDK sends, so app and browser screen
+  views land together. The screen's title is copied into `properties.name`, so screen views
+  stay distinguishable from one another. Other destinations still receive a real screen
+  event.
+
+### Fixed
+
+- **An event tracked immediately after construction is no longer dropped.** A `track()`
+  issued right after `Binoban(...)`, for example from `onCreate()`, could arrive before the
+  SDK finished initializing. The SDK then reported an internal error through `errorHandler`
+  and lost the event. It is now sent with the same identity it would have had a moment
+  later.
+- **Remotely configured `apiHost` and `apiKey` are now applied.** They were ignored before,
+  so a device stayed on the values compiled into the app. This affected both Android and
+  iOS.
+- **Remote settings in the server's current response format are read correctly.** Before
+  this fix, the SDK kept its defaults and kept sending, but changes made to a source's
+  settings never reached the device. Both the current and the previous response formats
+  are accepted.
+- **The remote kill switch is honored on its own.** A response of `{"enabled": false}`
+  stops the SDK whether or not it also carries settings for the SDK. A malformed settings
+  body no longer prevents the flag from being read. A string value such as `"false"` is
+  no longer mistaken for the boolean.
+- **A source that was disabled remotely is picked up as soon as it is re-enabled.** While
+  a source is disabled, the SDK fetches its settings in full rather than relying on a cached
+  answer. A re-enabled source therefore resumes on the next launch.
+- **A remote `enabled: true` no longer overrides `binoban.enabled = false`.** If your app
+  disables the SDK itself, only your app can enable it again.
+- **`disableCloudIntegrations()` now disables device-mode destinations.** Delivery to
+  Binoban itself continues, as it should.
+- **Successful diagnostic uploads are no longer reported to `errorHandler` as errors.**
+  Before this fix, a success status other than `200` was treated as a failure.
+- **The SDK's `User-Agent` header is now sent.** Requests used to go out with the HTTP
+  client's default value.
+- **Trace codes are case-insensitive.** A code entered in capitals now joins the same
+  session as the lowercase code shown in the panel.
+- **`DestinationPlugin.process()` copies the event before your destination's hooks run.**
+  So a destination that changes an event no longer changes the caller's copy.
+
+### Removed
+
+- **`Settings` no longer has `plan`, `edgeFunction`, `middlewareSettings` or
+  `consentSettings`.** The SDK never read any of these four. `Settings` now has three
+  fields, matching the Web SDK: `enabled`, `integrations` and `metrics`. Settings stored by
+  an earlier version still load correctly after the upgrade.
+
+  This change breaks source compatibility for code that named one of these properties. Our
+  compatibility policy keeps removals for major releases, so this is a deliberate, one-time
+  exception. We made it because the properties never had any effect. The policy itself is
+  unchanged.
+
+### Migration notes
+
+- If you passed `plan`, `edgeFunction`, `middlewareSettings` or `consentSettings` to
+  `Settings`, for example through `Configuration`'s `defaultSettings`, remove the argument.
+  No replacement is needed. No other code changes are required.
+- 1.3.0 is the first published release with the 1.2.0 changes below.
+
+## [1.2.0] — 2026-08-17
+
+Not published. Everything in this entry first ships in 1.3.0.
+
+### Added
+
+- **Trace sessions — follow one device through the pipeline.** A device can be enrolled in a
+  short-lived, opt-in, expiring window during which every event carries
+  `context.traceSessionId`, so a support engineer can follow one visitor from the call your
+  code makes to what Binoban did with it.
+
+  ```kotlin
+  binoban.joinTrace("the-code-from-the-panel")   // or scan the panel's QR
+  binoban.activeTraceSessionId                   // null when no session is active
+  binoban.traceDeliveryLog()                     // upload outcomes, for a support bundle
+  binoban.leaveTrace()
+  ```
+
+  Two entry paths ship together. The **manual code** needs no App Links, Universal Links or
+  URL scheme and therefore works in every app on day one. The **QR / deep link** carries a
+  `bnb_trace` query parameter: on Android the SDK picks it up automatically (see *Changed*),
+  on iOS the host forwards the URL via `BinobanTrace.shared.handleUrl(url:)`, the same shape
+  the notification forwarding already uses.
+
+  The session ends on `leaveTrace()`, after 12 hours, or after 250 events — whichever comes
+  first, all enforced by the SDK itself. The SDK never asks the server whether a trace is
+  still valid; self-limiting is what keeps an abandoned trace from becoming a permanent
+  tracking identifier. Tunables: `Configuration.traceMaxDurationMillis`, `traceMaxEvents`,
+  `traceDeliveryLogSize`.
+
+  Trace inherits the SDK's existing consent and enablement gating rather than adding a
+  second one: a disabled instance sends nothing, so it traces nothing. The session survives
+  process death — it is read back during `build()`, before the first event is dispatched, so
+  a QR scan that launches the app from cold has its id on the *first* event.
+
+- **Client-side capture of delivery outcomes, including rejections.** While a trace session
+  is active, `traceDeliveryLog()` returns a bounded, in-memory list of upload outcomes —
+  timestamp, event names, HTTP status, and the `code` / `field` / `reason` the tracker
+  returns on a rejection. This exists because a rejection is stored nowhere on the server:
+  it lives only as the HTTP response the app receives and normally discards. Error metadata
+  only — payloads are never recorded.
+
+- **`BinobanTrace` — a Swift-facing entry point for trace**, mirroring `BinobanNotifications`:
+  `join(traceSessionId:)`, `leave()`, `handleUrl(url:)`, `activeSessionId()`, `deliveryLog()`.
+
+### Changed
+
+- **`AndroidDeepLinkPlugin` is now registered automatically by `Binoban.build()`, and
+  `Configuration.trackDeepLinks` now defaults to `false`.** Read both halves together.
+
+  The plugin has been public, functional, tested and *never registered* since before `1.0.0`.
+  `Configuration.trackDeepLinks` was documented as defaulting to `false` and declared `= true`
+  — harmless only because nothing read it. Registering the plugin makes that flag
+  load-bearing for the first time, and leaving it `true` would have started emitting
+  `deep_link_opened` events for every upgrading customer who sets `Configuration.application`.
+
+  So the default is corrected to `false`, which matches its own documentation and the
+  behaviour every existing customer experiences today. **If you set `trackDeepLinks = true`
+  explicitly, nothing changes for you. If you relied on the undocumented `true` default,
+  deep-link tracking is now off until you set it.** If you already call
+  `binoban.add(AndroidDeepLinkPlugin())`, remove it — the extra instance detects the
+  automatic one and stays inert, so you will not get duplicate events either way.
+
+  **Trace joining is gated separately from `trackDeepLinks`.** A customer who has not opted
+  into deep-link *tracking* can still join a trace by scanning a QR, because those are
+  different decisions: one is analytics, the other is diagnostics.
+
+- **`AndroidDeepLinkPlugin` no longer fails setup when `Configuration.application` is
+  absent.** It registers inert and logs at debug instead of reporting through
+  `errorHandler`. Now that the plugin is registered for everyone, a missing `application` is
+  the ordinary case rather than a misconfiguration — `application` is optional for every
+  other part of the SDK. Deep-link tracking and QR trace entry are unavailable without it;
+  `joinTrace(code)` still works.
+
+### Fixed
+
+- **Re-joining the trace session that is already active is now a no-op.** It used to
+  reset the session's event count, push its 12-hour deadline out afresh, and clear the
+  recorded delivery outcomes. Automatic entry paths deliver the same link more than
+  once, so this was reachable in normal use: rotating an Android device after a
+  QR-launched trace re-processed the launch intent and wiped the trace's state. Joining
+  a *different* id still replaces the session, and re-joining an *expired* id still
+  starts a fresh one.
+
+- **A recreated Activity no longer reprocesses its launch deep link.** Android delivers
+  the original launch intent again when it recreates an Activity for a configuration
+  change (rotation, locale, dark mode), so a single deep link emitted a duplicate
+  `deep_link_opened` event each time. The intent is now marked once it has been handled.
+
+- **`AndroidDeepLinkPlugin` now unregisters its activity-lifecycle callbacks in
+  `teardown()`.** Removing the plugin previously left it attached to the `Application`.
+
+### Migration notes
+
+- Source-compatible. The three new `Configuration` properties are appended, and
+  `Storage.Constants.TraceSession` is appended to the enum.
+- `Configuration.trackDeepLinks` changes **default**, not signature. Set it explicitly if you
+  want deep-link tracking.
+- Remove any `binoban.add(AndroidDeepLinkPlugin())` call; registration is automatic.
+- iOS hosts that want QR trace entry must forward URLs:
+  `BinobanTrace.shared.handleUrl(url: url)` from `application(_:open:options:)`. Omitting it
+  is silent — the trace simply never starts.
+
 ## [1.1.0] — 2026-08-02
 
 ### Added
